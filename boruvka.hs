@@ -162,7 +162,8 @@ boruvkaAlg :: Wgraph -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [Wedge])
 boruvkaAlg g components wedges | components == [getNodes g] = (g, [], wedges)
                                | otherwise =
       let 
-          currwedges' = nub $ parMap rdeepseq (minLinkedComponent g) components
+          currwedges' | length components < 32 = nub $ map (minLinkedComponent g) components
+                      | otherwise = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
           --currwedges' = nub (map (minLinkedComponent g) components)
           wedges' | length components == 2 = wedges ++ [head currwedges']
                   | otherwise = wedges ++ currwedges'
@@ -223,7 +224,8 @@ checkComponentDuplicate mat nodes =
        
 -- Rearrange the components modified by the boruvka algorithm at each step
 rearrangeComponent :: [[Node]] -> [[Node]]
-rearrangeComponent listoflist = nub (parMap rdeepseq (checkComponentDuplicate listoflist) listoflist)
+rearrangeComponent listoflist | length listoflist <= 32 = nub (map (checkComponentDuplicate listoflist) listoflist)
+                              | otherwise = nub (map (checkComponentDuplicate listoflist) listoflist `using` parListChunk 8 rdeepseq)
 
 -- Rearrange the components (top-level function)
 rearrangeComponentFinal :: [[Node]] -> [[Node]]
@@ -247,8 +249,8 @@ isThereStillDuplicates listoflist | find (==True) (map (isThereDuplicatesNode li
 ------------------------------------------------------------------------
 
 main = do
-			t0 <- getCurrentTime
-                        args <- getArgs
+                        t0 <- getCurrentTime
+			args <- getArgs
 			content <- readFile (args !! 0)
 			let file = (args !! 0)
 			let file2 = take (length file - 4) file
@@ -259,18 +261,19 @@ main = do
 			
 			--writeFile (file2 ++ ".mat") (unlines (buildMatrixNotation graph))
 			
+			
 			let wedges = boruvka graph
 			print (getNodes graph)
-                        t1 <- getCurrentTime
-			
+                        t1 <- getCurrentTime			
+
 			--print (wedges)
 			print (getDistance wedges)	
 			
 			t2 <- getCurrentTime
 			print ("IO Time : " ++ show (diffUTCTime t1 t0))
-			print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
-
-                        print ("Final-4_parMap")
+                        print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
+			
+                        print ("Final-3_chunk_threshold")
                         print (cores)
 
 			--let comp = map (minLinkedComponent graph) (getComponents graph)
