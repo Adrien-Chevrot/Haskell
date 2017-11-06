@@ -7,9 +7,9 @@ import Data.List
 import Data.Bool
 import Data.Maybe
 import Data.Function
---import Control.Parallel 
---import Control.Parallel.Strategies
---import Control.DeepSeq
+import Control.Parallel 
+import Control.Parallel.Strategies
+import Control.DeepSeq
 import Data.Time
 import GHC.Conc (numCapabilities)
 
@@ -18,8 +18,8 @@ data Edge = Edge (Node, Node) deriving (Show, Eq)
 data Wedge = Wedge (Edge, Float) deriving (Show, Eq)
 data Wgraph = Wgraph [Wedge] deriving (Show)
 
---instance NFData Wedge where
---    rnf w = w `seq` ()
+instance NFData Wedge where
+    rnf w = w `seq` ()
 
 cores = fromIntegral numCapabilities
 
@@ -131,7 +131,7 @@ linkedWedges graph n = filter (\e -> n `elem` twoNodes e) (getEdges graph)
 
 -- Returns a list of weighted edges linked to a given component within a graph
 linkedComponent :: Wgraph -> [Node] -> [Wedge]
-linkedComponent g nodes = filter (\w -> not (((head (twoNodes w)) `elem` nodes) && (((twoNodes w)!!1) `elem` nodes))) (concat (map (linkedWedges g) nodes))
+linkedComponent g nodes = filter (\w -> not (((head (twoNodes w)) `elem` nodes) && (((twoNodes w)!!1) `elem` nodes))) (concat (parMap rdeepseq (linkedWedges g) nodes))
 
 -- Returns the less weighted edge linked to a given node
 minLinkedWedges :: Wgraph -> Node -> Wedge
@@ -162,7 +162,7 @@ boruvkaAlg :: Wgraph -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [Wedge])
 boruvkaAlg g components wedges | components == [getNodes g] = (g, [], wedges)
                                | otherwise =
       let 
-          currwedges' = nub $ map (minLinkedComponent g) components
+          currwedges' = nub $ parMap rdeepseq (minLinkedComponent g) components
           --currwedges' = nub (map (minLinkedComponent g) components)
           wedges' | length components == 2 = wedges ++ [head currwedges']
                   | otherwise = wedges ++ currwedges'
@@ -177,7 +177,7 @@ boruvkaAlg g components wedges | components == [getNodes g] = (g, [], wedges)
 
 -- Returns the length of a graph
 getDistance :: [Wedge] -> Float
-getDistance wedges = sum (map weight wedges)
+getDistance wedges = sum (parMap rdeepseq weight wedges)
 
 ------------------------------------------------------------------------
 ----------------------------------SORT----------------------------------
@@ -219,11 +219,11 @@ modifyIfDuplicate l1 l2 | compareList l1 l2 = add l1 l2
 checkComponentDuplicate :: [[Node]] -> [Node] -> [Node]
 checkComponentDuplicate mat nodes = 
    let new_mat = delete nodes mat
-       in quickSort (nub (concat (map (modifyIfDuplicate nodes) new_mat)))
+       in quickSort (nub (concat (parMap rdeepseq (modifyIfDuplicate nodes) new_mat)))
        
 -- Rearrange the components modified by the boruvka algorithm at each step
 rearrangeComponent :: [[Node]] -> [[Node]]
-rearrangeComponent listoflist = nub (map (checkComponentDuplicate listoflist) listoflist)
+rearrangeComponent listoflist = nub (parMap rdeepseq (checkComponentDuplicate listoflist) listoflist)
 
 -- Rearrange the components (top-level function)
 rearrangeComponentFinal :: [[Node]] -> [[Node]]
@@ -259,7 +259,6 @@ main = do
 			
 			--writeFile (file2 ++ ".mat") (unlines (buildMatrixNotation graph))
 			
-			
 			let wedges = boruvka graph
 			print (getNodes graph)
                         t1 <- getCurrentTime
@@ -269,9 +268,9 @@ main = do
 			
 			t2 <- getCurrentTime
 			print ("IO Time : " ++ show (diffUTCTime t1 t0))
-                        print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
-			
-                        print ("Final-5:Sequential")
+			print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
+
+                        print ("Final-4_parMap")
                         print (cores)
 
 			--let comp = map (minLinkedComponent graph) (getComponents graph)
