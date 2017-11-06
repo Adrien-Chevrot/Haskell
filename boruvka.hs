@@ -27,6 +27,7 @@ cores = fromIntegral numCapabilities
 ----------------------------BUILD GRAPH---------------------------------
 ------------------------------------------------------------------------
 
+--mygraph = Wgraph [(Edge (11 , 12) , 3.2),    ] 
 -- Build a weighted edge
 buildWedge :: [String] -> Wedge
 buildWedge [e, n1, n2, d] = Wedge (Edge (read n1 :: Node, read n2 :: Node), read d :: Float)
@@ -154,23 +155,26 @@ boruvka :: Wgraph -> [Wedge]
 boruvka g = 
   let wedges = []
       components = getComponents g
-      (_, _, wedges') = boruvkaAlg g components wedges
+      real_comp = []
+      (_, _, _, wedges') = boruvkaAlg g components real_comp wedges
       in wedges'
 
 -- Recursive boruvka algorithm which ends when the list of component is only composed of one component (all the nodes)
-boruvkaAlg :: Wgraph -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [Wedge])
-boruvkaAlg g components wedges | components == [getNodes g] = (g, [], wedges)
-                               | otherwise =
+boruvkaAlg :: Wgraph -> [[Node]] -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [[Node]], [Wedge])
+boruvkaAlg g components real_comp wedges | real_comp == [getNodes g] = (g, [], [], wedges)
+                                         | otherwise =
       let 
-          currwedges' | length components < 32 = nub $ map (minLinkedComponent g) components
-                      | otherwise = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
+          currwedges' | wedges == [] && length components < 16 = nub $ parMap rdeepseq (minLinkedComponent g) components
+                      | wedges == [] && length components >= 16 = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
+                      | wedges /= [] && length real_comp < 16 = nub $ parMap rdeepseq (minLinkedComponent g) real_comp
+                      | wedges /= [] && length real_comp >= 16 = nub (map (minLinkedComponent g) real_comp `using` parListChunk 8 rdeepseq)
           --currwedges' = nub (map (minLinkedComponent g) components)
-          wedges' | length components == 2 = wedges ++ [head currwedges']
+          wedges' | length real_comp == 2 = wedges ++ [head currwedges']
                   | otherwise = wedges ++ currwedges'
           midcomponents = fromWedgesToNodes currwedges'
           midcomponents' = rearrangeComponentFinal midcomponents
-          components' = rearrangeComponentFinal (components ++ midcomponents')
-      in boruvkaAlg g components' wedges'
+          real_comp' = rearrangeComponentFinal (real_comp ++ midcomponents')
+      in boruvkaAlg g [] real_comp' wedges'
       
 ------------------------------------------------------------------------
 ---------------------------------LENGTH---------------------------------
@@ -205,7 +209,7 @@ chunk n xs = y1 : chunk n y2
 
 -- Concatenate two lists such that the elements in the resulting list occur only once
 add :: [Node] -> [Node] -> [Node]
-add l1 l2 = nub (l1 ++ l2)
+add l1 l2 = quickSort $ nub (l1 ++ l2)
 
 -- Compare two given lists and returns true if some elements of the first are in the second
 compareList :: (Eq a) => [a] -> [a] -> Bool
@@ -224,8 +228,9 @@ checkComponentDuplicate mat nodes =
        
 -- Rearrange the components modified by the boruvka algorithm at each step
 rearrangeComponent :: [[Node]] -> [[Node]]
-rearrangeComponent listoflist | length listoflist <= 32 = nub (map (checkComponentDuplicate listoflist) listoflist)
-                              | otherwise = nub (map (checkComponentDuplicate listoflist) listoflist `using` parListChunk 8 rdeepseq)
+rearrangeComponent listoflist | length listoflist == 1 = listoflist
+                              | length listoflist < 32 = nub $ map (checkComponentDuplicate listoflist) listoflist
+                              | otherwise = nub $ concat $ parMap rdeepseq rearrangeComponent (chunk 8 listoflist)
 
 -- Rearrange the components (top-level function)
 rearrangeComponentFinal :: [[Node]] -> [[Node]]
@@ -249,39 +254,42 @@ isThereStillDuplicates listoflist | find (==True) (map (isThereDuplicatesNode li
 ------------------------------------------------------------------------
 
 main = do
-                        t0 <- getCurrentTime
-			args <- getArgs
-			content <- readFile (args !! 0)
-			let file = (args !! 0)
-			let file2 = take (length file - 4) file
-			let linesOfFiles = lines content
-			let graph = buildGraph (fromLinestoWedge (keepEdges linesOfFiles))
-			
-			--print (getEdges graph)
+            t0 <- getCurrentTime
+            args <- getArgs
+            content <- readFile (args !! 0)
+            let file = (args !! 0)
+            let file2 = take (length file - 4) file
+            let linesOfFiles = lines content
+            let graph = buildGraph (fromLinestoWedge (keepEdges linesOfFiles))
+            
+            --print (getEdges graph)
 			
 			--writeFile (file2 ++ ".mat") (unlines (buildMatrixNotation graph))
 			
+            
+            let wedges = boruvka graph
+	    print (getNodes graph)
+            t1 <- getCurrentTime		
 			
-			let wedges = boruvka graph
-			print (getNodes graph)
-                        t1 <- getCurrentTime			
+            --print (wedges)
+            print (getDistance wedges)	
+			
+            t2 <- getCurrentTime
+            print ("IO Time : " ++ show (diffUTCTime t1 t0))
+            print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
 
-			--print (wedges)
-			print (getDistance wedges)	
+            print ("Final-2_good_reArr")
+            print (cores)
 			
-			t2 <- getCurrentTime
-			print ("IO Time : " ++ show (diffUTCTime t1 t0))
-                        print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
+            {-let comp = map (minLinkedComponent graph) (getComponents graph)
+            let w = fromWedgesToNodes comp
+            let mid = rearrangeComponentFinal w
+            let comp' = map (minLinkedComponent graph) mid
+            let w' = fromWedgesToNodes comp'
+            let mid' = rearrangeComponentFinal w'
+            print (mid)-}
 			
-                        print ("Final-3_chunk_threshold")
-                        print (cores)
-
-			--let comp = map (minLinkedComponent graph) (getComponents graph)
-			--let w = fromWedgesToNodes comp
-			--let mid = rearrangeComponent $ rearrangeComponent w
-			--print (length mid)
-			
-			--let mst_graph = buildGraph wedges
-			
-			--let mst = "mst"
-			--writeFile (mst ++ ".mat") (unlines (buildMatrixNotation mst_graph))
+            --let mst_graph = buildGraph wedges
+            
+            --let mst = "mst"
+            --writeFile (mst ++ ".mat") (unlines (buildMatrixNotation mst_graph))
