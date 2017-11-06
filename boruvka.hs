@@ -27,7 +27,6 @@ cores = fromIntegral numCapabilities
 ----------------------------BUILD GRAPH---------------------------------
 ------------------------------------------------------------------------
 
---mygraph = Wgraph [(Edge (11 , 12) , 3.2),    ] 
 -- Build a weighted edge
 buildWedge :: [String] -> Wedge
 buildWedge [e, n1, n2, d] = Wedge (Edge (read n1 :: Node, read n2 :: Node), read d :: Float)
@@ -78,7 +77,7 @@ tryGetWedge :: Wgraph -> Node -> Node -> Maybe Wedge
 tryGetWedge (Wgraph g) n1 n2  = find (\x -> [n1, n2] \\ twoNodes x == []) g
 
 ------------------------------------------------------------------------
--------------------------MATRIX REPRESENTATION--------------------------
+-----------------------MATRIX REPRESENTATION/STRINGS--------------------
 ------------------------------------------------------------------------
 
 -- Returns the matrix representation within strings
@@ -95,6 +94,12 @@ getWeightOrZero graph n n2 | wedge == Nothing = "0 "
                            | otherwise = show (round (weight (fromJust wedge))) ++ " "
                            where
                              wedge = tryGetWedge graph n n2
+
+fromEdgeToString :: Edge -> String
+fromEdgeToString (Edge (n1, n2)) = "Edge ("++show n1++","++show n2++")"
+
+fromWedgeToString :: Wedge -> String
+fromWedgeToString (Wedge (x1, x2)) = "Wedge ("++fromEdgeToString x1++","++show x2++"),"
 
 ------------------------------------------------------------------------
 ------------------------SELF CONNECTED NODES----------------------------
@@ -119,12 +124,8 @@ weight :: Wedge -> Float
 weight (Wedge (_, w)) = w
 
 -- Gives the less weighted edge
-minWeight :: [Wedge] -> Float
-minWeight edges = minimum (map weight edges)
-
--- Returns a list of edges with the same weight than given
-findWedgefromWeight :: Wgraph -> Float -> [Wedge] -> [Wedge]
-findWedgefromWeight graph value edges = filter (\e -> weight e == value) edges
+minWeight :: [Wedge] -> Wedge
+minWeight edges = minimumBy (compare `on` weight) edges
 
 -- Returns a list of weighted edges linked to the given node in a graph 
 linkedWedges :: Wgraph -> Node -> [Wedge]
@@ -136,11 +137,15 @@ linkedComponent g nodes = filter (\w -> not (((head (twoNodes w)) `elem` nodes) 
 
 -- Returns the less weighted edge linked to a given node
 minLinkedWedges :: Wgraph -> Node -> Wedge
-minLinkedWedges graph n = head (findWedgefromWeight graph (minWeight (linkedWedges graph n)) (linkedWedges graph n))
+minLinkedWedges graph n = minWeight (linkedWedges graph n)
 
--- Returns the less weighted edge linled to a given component
+-- Returns the less weighted edge linked to a given component
 minLinkedComponent :: Wgraph -> [Node] -> Wedge
-minLinkedComponent graph component = head (findWedgefromWeight graph (minWeight (linkedComponent graph component)) (linkedComponent graph component))
+minLinkedComponent graph component = minWeight (linkedComponent graph component)
+
+-- Returns the less weighted edges linked to several components
+minLinkedComponents :: Wgraph -> [[Node]] -> [Wedge]
+minLinkedComponents graph components = map (\c -> minWeight (linkedComponent graph c)) components
 
 -- Returns a list of components from a given list of edges
 fromWedgesToNodes :: [Wedge] -> [[Node]]
@@ -164,10 +169,12 @@ boruvkaAlg :: Wgraph -> [[Node]] -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [[
 boruvkaAlg g components real_comp wedges | real_comp == [getNodes g] = (g, [], [], wedges)
                                          | otherwise =
       let 
-          currwedges' | wedges == [] && length components < 16 = nub $ parMap rdeepseq (minLinkedComponent g) components
-                      | wedges == [] && length components >= 16 = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
-                      | wedges /= [] && length real_comp < 16 = nub $ parMap rdeepseq (minLinkedComponent g) real_comp
-                      | wedges /= [] && length real_comp >= 16 = nub (map (minLinkedComponent g) real_comp `using` parListChunk 8 rdeepseq)
+          currwedges' | wedges == [] && length components < 32 = nub $ parMap rdeepseq (minLinkedComponent g) components
+                      -- | wedges == [] && length components >= 16 = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
+                      | wedges == [] && length components >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 components)
+                      | wedges /= [] && length real_comp < 32 = nub $ parMap rdeepseq (minLinkedComponent g) real_comp
+                      -- | wedges /= [] && length real_comp >= 16 = nub (map (minLinkedComponent g) real_comp `using` parListChunk 8 rdeepseq)
+                      | wedges /= [] && length real_comp >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 real_comp)
           --currwedges' = nub (map (minLinkedComponent g) components)
           wedges' | length real_comp == 2 = wedges ++ [head currwedges']
                   | otherwise = wedges ++ currwedges'
@@ -175,14 +182,14 @@ boruvkaAlg g components real_comp wedges | real_comp == [getNodes g] = (g, [], [
           midcomponents' = rearrangeComponentFinal midcomponents
           real_comp' = rearrangeComponentFinal (real_comp ++ midcomponents')
       in boruvkaAlg g [] real_comp' wedges'
-      
+
 ------------------------------------------------------------------------
 ---------------------------------LENGTH---------------------------------
 ------------------------------------------------------------------------
 
 -- Returns the length of a graph
 getDistance :: [Wedge] -> Float
-getDistance wedges = sum (parMap rdeepseq weight wedges)
+getDistance wedges = sum (map weight wedges)
 
 ------------------------------------------------------------------------
 ----------------------------------SORT----------------------------------
@@ -262,25 +269,25 @@ main = do
             let linesOfFiles = lines content
             let graph = buildGraph (fromLinestoWedge (keepEdges linesOfFiles))
             
-            --print (getEdges graph)
+            --writeFile "edges.dat" (concat $ map fromWedgeToString (getEdges graph))
 			
 			--writeFile (file2 ++ ".mat") (unlines (buildMatrixNotation graph))
-			
-            
+		
             let wedges = boruvka graph
-	    print (getNodes graph)
-            t1 <- getCurrentTime		
+            print (getNodes graph)
 			
+            t1 <- getCurrentTime
             --print (wedges)
             print (getDistance wedges)	
 			
             t2 <- getCurrentTime
-            print ("IO Time : " ++ show (diffUTCTime t1 t0))
+            
+            print ("I/O Time : " ++ show (diffUTCTime t1 t0))
             print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
 
-            print ("Final-2_good_reArr")
-            print (cores)
-			
+            print ("Final-1_good_minLink")
+            print (cores)			
+
             {-let comp = map (minLinkedComponent graph) (getComponents graph)
             let w = fromWedgesToNodes comp
             let mid = rearrangeComponentFinal w
