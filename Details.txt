@@ -1,0 +1,23 @@
+This zip file contains 6 different directories, one for each version described in the dissertation.
+
+In each directory, there is 2 scripts for launching the program on the Robotarium cluster,
+the first one is tboruvka.sh for measuring runtimes only, and the second one logboruvka.sh is useful
+to create an eventlog file, which can be used with the tool 'threadscope' to get the GC percentage.
+
+Source codes from each version can be compiled using:
+ghc -O2 -rtsopts -threaded -o boruvka_thr boruvka.hs
+
+You will need ghc installed on the Linux machine to compile and run the programs.
+
+Parallel measurements can be run using:
+time ./boruvka_thr C1000.dat +RTS -N6
+
+-N6 is the number of cores you want to use.
+The best option to get parallel measuremets is to run the program
+on the Robotarium Cluster using:
+sbatch tboruvka.sh C1000.dat 16
+It will indicate to the system that the program must be launched using the longq, with the C1000.dat file
+and 16 cores to compute.
+
+The 'mstgraph2.dat' file represents the graph that we took as an example in the dissertation
+from 'http://www.geeksforgeeks.org/greedy-algorithms-set-9-boruvkas-algorithm/' 
