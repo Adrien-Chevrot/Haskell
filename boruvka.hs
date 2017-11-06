@@ -133,7 +133,7 @@ linkedWedges graph n = filter (\e -> n `elem` twoNodes e) (getEdges graph)
 
 -- Returns a list of weighted edges linked to a given component within a graph
 linkedComponent :: Wgraph -> [Node] -> [Wedge]
-linkedComponent g nodes = filter (\w -> not (((head (twoNodes w)) `elem` nodes) && (((twoNodes w)!!1) `elem` nodes))) (concat (parMap rdeepseq (linkedWedges g) nodes))
+linkedComponent g nodes = filter (\w -> not (((head (twoNodes w)) `elem` nodes) && (((twoNodes w)!!1) `elem` nodes))) (concat (map (linkedWedges g) nodes `using` parListChunk (length nodes `div` cores) rdeepseq))
 
 -- Returns the less weighted edge linked to a given node
 minLinkedWedges :: Wgraph -> Node -> Wedge
@@ -169,12 +169,12 @@ boruvkaAlg :: Wgraph -> [[Node]] -> [[Node]] -> [Wedge] -> (Wgraph, [[Node]], [[
 boruvkaAlg g components real_comp wedges | real_comp == [getNodes g] = (g, [], [], wedges)
                                          | otherwise =
       let 
-          currwedges' | wedges == [] && length components < 32 = nub $ parMap rdeepseq (minLinkedComponent g) components
-                      -- | wedges == [] && length components >= 16 = nub (map (minLinkedComponent g) components `using` parListChunk 8 rdeepseq)
-                      | wedges == [] && length components >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 components)
-                      | wedges /= [] && length real_comp < 32 = nub $ parMap rdeepseq (minLinkedComponent g) real_comp
-                      -- | wedges /= [] && length real_comp >= 16 = nub (map (minLinkedComponent g) real_comp `using` parListChunk 8 rdeepseq)
-                      | wedges /= [] && length real_comp >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 real_comp)
+          currwedges' | wedges == [] && length components < cores = nub $ parMap rdeepseq (minLinkedComponent g) components
+                      | wedges == [] && length components >= cores = nub (map (minLinkedComponent g) components `using` parListChunk (length components `div` cores) rdeepseq)
+                      -- | wedges == [] && length components >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 components)
+                      | wedges /= [] && length real_comp < cores = nub $ parMap rdeepseq (minLinkedComponent g) real_comp
+                      | wedges /= [] && length real_comp >= cores = nub (map (minLinkedComponent g) real_comp `using` parListChunk (length real_comp `div` cores) rdeepseq)
+                      -- | wedges /= [] && length real_comp >= 32 = nub $ concat $ parMap rdeepseq (minLinkedComponents g) (chunk 8 real_comp)
           --currwedges' = nub (map (minLinkedComponent g) components)
           wedges' | length real_comp == 2 = wedges ++ [head currwedges']
                   | otherwise = wedges ++ currwedges'
@@ -231,15 +231,14 @@ modifyIfDuplicate l1 l2 | compareList l1 l2 = add l1 l2
 checkComponentDuplicate :: [[Node]] -> [Node] -> [Node]
 checkComponentDuplicate mat nodes = 
    let new_mat = delete nodes mat
-       in quickSort (nub (concat (parMap rdeepseq (modifyIfDuplicate nodes) new_mat)))
+       in quickSort (nub (concat (map (modifyIfDuplicate nodes) new_mat)))
        
 -- Rearrange the components modified by the boruvka algorithm at each step
 rearrangeComponent :: [[Node]] -> [[Node]]
 rearrangeComponent listoflist | length listoflist == 1 = listoflist
-                              | length listoflist < 32 = nub $ map (checkComponentDuplicate listoflist) listoflist
-                              | otherwise = nub $ concat $ parMap rdeepseq rearrangeComponent (chunk 8 listoflist)
+                              | length listoflist < 32 = nub (map (checkComponentDuplicate listoflist) listoflist `using` parListChunk (length listoflist `div` cores) rdeepseq)                             
+                              | otherwise = nub (concat (map rearrangeComponent (chunk 8 listoflist) `using` parListChunk (length listoflist `div` cores) rdeepseq))
 
--- Rearrange the components (top-level function)
 rearrangeComponentFinal :: [[Node]] -> [[Node]]
 rearrangeComponentFinal listoflist | length listoflist == 1 = listoflist
                                    | otherwise = until (not . isThereStillDuplicates) (rearrangeComponent) listoflist
@@ -252,7 +251,8 @@ isThereDuplicatesNode mat node | find (==True) (map (compareList node) new_mat) 
 
 -- Checks whether the list of lists of nodes still has duplicates
 isThereStillDuplicates :: [[Node]] -> Bool
-isThereStillDuplicates listoflist | find (==True) (map (isThereDuplicatesNode listoflist) listoflist) == Just True = True
+isThereStillDuplicates listoflist | length listoflist == 1 = False
+                                  | find (==True) (map (isThereDuplicatesNode listoflist) listoflist) == Just True = True
                                   | otherwise = False
 
 
@@ -284,10 +284,10 @@ main = do
             
             print ("I/O Time : " ++ show (diffUTCTime t1 t0))
             print ("Boruvka Time : " ++ show (diffUTCTime t2 t1))
-
-            print ("Final-1_good_minLink")
-            print (cores)			
-
+	    
+            print ("Final")
+            print (cores)
+		
             {-let comp = map (minLinkedComponent graph) (getComponents graph)
             let w = fromWedgesToNodes comp
             let mid = rearrangeComponentFinal w
